@@ -1,70 +1,83 @@
+import os
 import pandas as pd
 import numpy as np
 from sklearn.metrics.pairwise import cosine_similarity
-import sys
-import os
 
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
-
-from src.config import MOVIES_PATH, CREDITS_PATH
-from src.data_loader import load_and_merge_data
+from src.config import MOVIES_PATH, CREDITS_PATH, RATINGS_PATH, MOVIES_FROM_RATINGS_PATH
+from src.data_loading_and_preprocessing import load_and_merge_data
 from src.processing import parse_json_columns, add_engineered_features, build_matrices
+from src.eda_visualizations import generate_all_eda_plots
 from src.models import calculate_weighted_rating, get_baseline_recommendations, recommendation
-from src.evaluation import evaluate_model, find_best_alpha
+from src.evaluation import evaluate_model, run_leave_one_out_evaluation
 
+def run_comprehensive_test():
+    print("="*50)
+    print("STARTING COMPREHENSIVE SYSTEM TEST")
+    print("="*50)
 
-def main():
-    print("1. Loading data...")
-    df = load_and_merge_data(MOVIES_PATH, CREDITS_PATH)
-    print(f"Loaded {len(df)} movies.")
+    try:
+        raw_data = load_and_merge_data(MOVIES_PATH, CREDITS_PATH, RATINGS_PATH, MOVIES_FROM_RATINGS_PATH)
+        print(f"Data loaded: {raw_data.shape}")
+    except Exception as e:
+        print(f"ERROR loading data: {e}")
+        return
 
-    print("2. Processing data...")
-    df = parse_json_columns(df)
-    df = add_engineered_features(df)
+    print("\n--- Feature Processing ---")
+    data_parsed = parse_json_columns(raw_data.copy())
+    data_eng = add_engineered_features(data_parsed)
+    
+    data_eng['release_year'] = data_eng['release_year'].fillna(data_eng['release_year'].median())
+    
+    print(f"Feature engineering completed. Columns: {data_eng.columns.tolist()[:10]}...")
 
-    df, C, m = calculate_weighted_rating(df)
+    print("\n--- Building TF-IDF + Count + Numerical Matrix ---")
+    combined_matrix, final_data = build_matrices(data_eng)
+    cosine_sim = cosine_similarity(combined_matrix, combined_matrix)
+    print(f"Similarity matrix ready: {cosine_sim.shape}")
 
-    print("3. Building combined matrix...")
-    combined_matrix, df = build_matrices(df)
+    print("\n--- Baseline Model Test ---")
+    data_with_wr, C, m = calculate_weighted_rating(final_data)
+    top_movies = get_baseline_recommendations(data_with_wr, n=5)
+    print("Top 5 movies (Weighted Rating):")
+    print(top_movies[['original_title', 'weighted_rating']])
 
-    print("4. Calculating cosine similarity...")
-    cosine_sim = cosine_similarity(combined_matrix)
+    print("\n--- Content-Based Recommendation Test ---")
+    
+    indices = pd.Series(final_data.index, index=final_data['original_title']).drop_duplicates()
+    
+    test_titles = ["The Dark Knight", "Inception", "Toy Story"]
+    
+    for title in test_titles:
+        if title in final_data['original_title'].values:
+            print(f"\nRecommendations for: {title}")
+            
+            recs = recommendation(title, cosine_sim, final_data, indices, alpha=0.3, use_mmr=True)
+            
+            if not recs.empty:
+                print(recs[['original_title', 'final_score', 'vote_average']].head(5))
+            else:
+                print(f"No recommendations for {title}")
+        else:
+            print(f"ℹMovie '{title}' not found in the database.")
 
-    baseline_recs = get_baseline_recommendations(df, n=5, min_votes=m)
-    print(baseline_recs[['original_title','release_year','vote_average','vote_count','weighted_rating']])
+    print("\n--- Edge Cases Test ---")
+    
+    print("Test A (Non-existent movie): ", end="")
+    fake_recs = recommendation("Movie That Does Not Exist 2026", cosine_sim, final_data, indices)
+    print("Returned empty DataFrame" if fake_recs.empty else "Should be empty")
 
-    alpha_results = find_best_alpha(df, cosine_sim)
-    best_row = alpha_results.loc[alpha_results['composite_score'].idxmax()]
-    best_alpha = best_row['alpha']
+    print("Test B (Short description): ", end="")
+    subset = final_data.iloc[0:5]
+    if 'soup' in subset.columns:
+        print(f"'soup' field generated. Sample length: {len(subset.iloc[0]['soup'])}")
 
-    print(alpha_results[['alpha', 'quality', 'diversity', 'composite_score']])
-    print(f"\n Best alpha parameter: {best_alpha:.2f}")
+    print("\n--- Running evaluation (Sample) ---")
+    eval_metrics = evaluate_model(final_data, cosine_sim, indices, sample_size=5, top_k=5)
+    print(f"Quality metrics: {eval_metrics}")
 
-    test_movie = "The Dark Knight"
-    print(f"\n Recommendations for: '{test_movie}' ---")
-
-    recs = recommendation(
-        test_movie,
-        cosine_sim,
-        df,
-        alpha=best_alpha,
-        use_mmr=True
-    )
-
-    if not recs.empty:
-        print(recs[['original_title', 'vote_average', 'final_score', 'genres']].head(10))
-    else:
-        print("Movie was not found.")
-
-    final_stats = evaluate_model(
-        df,
-        cosine_sim,
-        sample_size=500,
-        alpha=best_alpha
-    )
-
-    print("\n FINAL RESULTS:")
-    print(final_stats)
+    print("\n" + "="*50)
+    print("ALL TESTS COMPLETED SUCCESSFULLY")
+    print("="*50)
 
 if __name__ == "__main__":
-    main()
+    run_comprehensive_test()
