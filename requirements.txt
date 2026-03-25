@@ -6,5 +6,5 @@ scipy
 scikit-learn
 joblib
 huggingface_hub
-streamlit
+streamlit>=1.42.0
 python-dotenv
