@@ -14,7 +14,6 @@ ENV/
 .vscode/
 .idea/
 
-#data/*.csv
 data/*.json
 
 models/*.joblib
