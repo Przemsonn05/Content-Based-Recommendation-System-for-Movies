@@ -1,9 +1,10 @@
-streamlit
 pandas
 numpy
-scipy
 matplotlib
 seaborn
+scipy
 scikit-learn
-huggingface_hub
 joblib
+huggingface_hub
+streamlit
+python-dotenv
