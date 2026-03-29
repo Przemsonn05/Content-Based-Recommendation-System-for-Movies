@@ -1,0 +1,12 @@
+services:
+  rec-sys-app:
+    build: .
+    container_name: recommendation_system_container
+    ports:
+      - "8501:8501"
+    volumes:
+      - ./data:/app/data
+      - ./results:/app/results
+    environment:
+      - PYTHONUNBUFFERED=1
+      - HF_HUB_DISABLE_SYMLINKS_WARNING=1
